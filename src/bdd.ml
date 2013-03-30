@@ -36,19 +36,19 @@ let boolToLeaf = function
 
 (** HASHTABLE PART *)
 type 'a robdd_id = uid * 'a * uid
+type op_id = uid * uid
 
 let context:((Type.t robdd_id,Type.t bdd) Hashtbl.t) = (Hashtbl.create 2047)
+let opContext:((op_id,Type.t bdd) Hashtbl.t) = (Hashtbl.create 2047)
 
 
-let lookup elt =
-  if Hashtbl.mem context elt then
-    Some (Hashtbl.find context elt)
+let lookup elt ctx =
+  if Hashtbl.mem ctx elt then
+    Some (Hashtbl.find ctx elt)
   else
     None
 
 let lookupUnsafe = Hashtbl.find context
-
-let insert id bdd = Hashtbl.add context id bdd
 
 let rec isSingleton = function
   Robdd (l,_,r,_) when ((l == One) || (l == Zero)) &&
@@ -58,7 +58,7 @@ let rec isSingleton = function
 
 let mkNode l v r =
   let (lid,rid) = (identifier l,identifier r) in
-  match lookup (lid,v,rid) with
+  match lookup (lid,v,rid) context with
     | Some id -> Robddref (lid,v,rid,(identifier id))
     | None ->
     if (eq l r) then l
@@ -78,28 +78,35 @@ let rec unaryApply fn = function
 
 
 let rec apply fn left right =
-match (left,right) with
-  | (Robdd (l,v,r,_),Robdd (l',v',r',_))
-    -> begin
-        match compare v v' with
-        | 0 -> mkNode (apply fn l l') v (apply fn r r')
-        | n when n < 0 -> mkNode (apply fn l right) v (apply fn r right)
-        | _ -> mkNode (apply fn left l') v' (apply fn left r')
-      end
-  | (Robddref (l,v,r,_), other) -> apply fn (lookupUnsafe (l,v,r)) other
-  | (other, Robddref (l,v,r,_)) -> apply fn other (lookupUnsafe (l,v,r))
-  | (Zero, Robdd (l,v,r,_)) -> mkNode (apply fn Zero l) v (apply fn Zero r)
-  | (Robdd (l,v,r,_), Zero) -> mkNode (apply fn l Zero) v (apply fn r Zero)
-  | (One, Robdd (l,v,r,_)) -> mkNode (apply fn One l) v (apply fn One r)
-  | (Robdd (l,v,r,_), One) -> mkNode (apply fn l One) v (apply fn r One)
-  | (l,r) -> boolToLeaf (fn (leafToBool l) (leafToBool r))
+match lookup (identifier left, identifier right) opContext with
+| Some a -> a
+| None   ->
+  let res =
+  match (left,right) with
+    | (Robdd (l,v,r,_),Robdd (l',v',r',_))
+      -> begin
+          match compare v v' with
+          | 0 -> mkNode (apply fn l l') v (apply fn r r')
+          | n when n < 0 -> mkNode (apply fn l right) v (apply fn r right)
+          | _ -> mkNode (apply fn left l') v' (apply fn left r')
+        end
+    | (Robddref (l,v,r,_), other) -> apply fn (lookupUnsafe (l,v,r)) other
+    | (other, Robddref (l,v,r,_)) -> apply fn other (lookupUnsafe (l,v,r))
+    | (Zero, Robdd (l,v,r,_)) -> mkNode (apply fn Zero l) v (apply fn Zero r)
+    | (Robdd (l,v,r,_), Zero) -> mkNode (apply fn l Zero) v (apply fn r Zero)
+    | (One, Robdd (l,v,r,_)) -> mkNode (apply fn One l) v (apply fn One r)
+    | (Robdd (l,v,r,_), One) -> mkNode (apply fn l One) v (apply fn r One)
+    | (l,r) -> boolToLeaf (fn (leafToBool l) (leafToBool r))
+  in
+  Hashtbl.add opContext (identifier left, identifier right) res;
+  res
 
-let neg = unaryApply not
-let (&&.) = apply (&&)
-let (||.) = apply (||)
-let (^.)  = apply (<>)
-let (=>) a b = apply (fun a b -> (not a) || b) a b
-let (<=>) = apply (==)
+let neg      = Hashtbl.clear opContext ; unaryApply not
+let (&&.)    = Hashtbl.clear opContext ; apply (&&)
+let (||.)    = Hashtbl.clear opContext ; apply (||)
+let (^.)     = Hashtbl.clear opContext ; apply (<>)
+let (=>) a b = Hashtbl.clear opContext ; apply (fun a b -> (not a) || b) a b
+let (<=>)    = Hashtbl.clear opContext ; apply (==)
 
 let rec getSat = function
   Zero -> None
