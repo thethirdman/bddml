@@ -37,7 +37,7 @@ let boolToLeaf = function
 (** HASHTABLE PART *)
 type 'a robdd_id = uid * 'a * uid
 
-let context:((Type.t robdd_id,Type.t bdd) Hashtbl.t) = (Hashtbl.create 1023)
+let context:((Type.t robdd_id,Type.t bdd) Hashtbl.t) = (Hashtbl.create 2047)
 
 
 let lookup elt =
@@ -79,19 +79,19 @@ let rec unaryApply fn = function
 
 let rec apply fn left right =
 match (left,right) with
-  | (Zero, Robdd (l,v,r,_)) | (Robdd (l,v,r,_), Zero)
-    -> mkNode (apply fn Zero l) v (apply fn Zero r)
-  | (One, Robdd (l,v,r,_)) | (Robdd (l,v,r,_), One)
-    -> mkNode (apply fn One l) v (apply fn One r)
-  | (Robddref (l,v,r,_), other) -> apply fn (lookupUnsafe (l,v,r)) other
-  | (other, Robddref (l,v,r,_)) -> apply fn other (lookupUnsafe (l,v,r))
   | (Robdd (l,v,r,_),Robdd (l',v',r',_))
     -> begin
         match compare v v' with
         | 0 -> mkNode (apply fn l l') v (apply fn r r')
         | n when n < 0 -> mkNode (apply fn l right) v (apply fn r right)
-        | _ -> mkNode (apply fn left l') v (apply fn left r')
+        | _ -> mkNode (apply fn left l') v' (apply fn left r')
       end
+  | (Robddref (l,v,r,_), other) -> apply fn (lookupUnsafe (l,v,r)) other
+  | (other, Robddref (l,v,r,_)) -> apply fn other (lookupUnsafe (l,v,r))
+  | (Zero, Robdd (l,v,r,_)) -> mkNode (apply fn Zero l) v (apply fn Zero r)
+  | (Robdd (l,v,r,_), Zero) -> mkNode (apply fn l Zero) v (apply fn r Zero)
+  | (One, Robdd (l,v,r,_)) -> mkNode (apply fn One l) v (apply fn One r)
+  | (Robdd (l,v,r,_), One) -> mkNode (apply fn l One) v (apply fn r One)
   | (l,r) -> boolToLeaf (fn (leafToBool l) (leafToBool r))
 
 let neg = unaryApply not

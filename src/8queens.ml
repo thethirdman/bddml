@@ -6,7 +6,7 @@ module Tuple =
     let print (a,b) = printf "(%d,%d)" a b
   end
 
-module M = BDD(Tuple)
+module M = Bdd.BDD(Tuple)
 open M
 
 let rec make_seq = function
@@ -26,19 +26,21 @@ let invalid (x,y) (i,j) = ((x,y) <> (i,j))
     && ((x+y==i+j) || (x-y==i-j) || (x==i) || (y==j))
 
 let in_sight n (x,y) =
+  let idx = make_indexes n in
   let cannot_exist = foldl1 (&&.)
     (List.map (fun a -> neg (singleton a))
-      (List.filter (invalid (x,y)) (make_indexes n))) in
+      (List.filter (invalid (x,y)) idx)) in
   (singleton (x,y)) => cannot_exist
 
 let doit n =
+  let seqs = (make_seq n) in
   let queens = List.fold_left
       (fun acc i -> acc &&. (List.fold_left
-        (fun acc j -> (singleton (i,j)) ||. acc) Zero (make_seq n)))
-        One (make_seq n)
+        (fun acc j -> (singleton (i,j)) ||. acc) Zero seqs))
+        One seqs
   in
-  List.fold_left (&&.) queens (List.map (in_sight n) (make_indexes
-  n))
+  let idx = make_indexes n in
+  List.fold_left (&&.) queens (List.map (in_sight n) idx)
 
 let print = function
   None -> print_endline "No solutions"
