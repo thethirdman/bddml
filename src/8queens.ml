@@ -67,6 +67,6 @@ let print =
 
 (** Main function *)
 let _ =
-  let bdd = doit 9 in
+  let bdd = doit 11 in
   print_int (satCount bdd); print_newline ();
   print (getSat bdd)
