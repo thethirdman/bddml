@@ -25,26 +25,41 @@ let make_indexes n =
     | (i,j) -> (i,j)::(sub n (i,j+1)) in
   sub n (1,1)
 
-module Set = Set.Make(Tuple)
+let valid_move size (x,y) (i,j) =
+  ((abs i) <> (abs j))
+  && (x + i) > 0 && (x + i) <= size
+  && (y + j) > 0 && (y + j) <= size
 
-let combine lst1 lst2 =
+let getSucc size (i,j) =
+  let lst = [-2;-1;1;2]
+  in
   let rec aux l1 l2 = match l1,l2 with
   [], _ -> []
-  | e::l, [] -> aux l lst2
-  | e::l, x::xs -> (e,x)::(aux (e::l) xs)
+  | e::l, [] -> aux l lst
+  | x::xs, y::ys ->
+      if valid_move size (i,j) (x,y) then
+        (x+i,y+j)::(aux (x::xs) ys)
+      else
+        (aux (x::xs) ys)
   in
-  aux lst1 lst2
+  aux lst lst
 
 let foldl1 fn lst = List.fold_left fn (List.hd lst) (List.tl lst)
 
-let getSucc size (x,y) =
-    List.filter (fun (i,j) -> i > 0 && i <= size && j > 0 && j <= size && (abs
-    i) <>
-    (abs j))
-    (List.map (fun (a,b) -> (x+a,y+b)) (combine [-2;-1;1;2] [-2; -1;1;2]))
+let rec flattenmap f = function
+  [] -> []
+  | e::l -> (f e)@(flattenmap f l)
+
+let rec uniq lst =
+  let rec rm_dup elt = function
+    [] -> []
+    |  e::l when elt == e -> rm_dup elt l
+    | e::l -> e::(rm_dup e l) in
+  let sorted = List.sort Tuple.compare lst in
+  rm_dup (List.hd sorted) (List.tl sorted)
 
 let rec path size std nodes =
-  let succLst = List.flatten (List.map (getSucc size) nodes) in
+  let succLst = uniq (flattenmap (getSucc size) nodes) in
   let result  = std &&. (foldl1 (&&.) (List.map singleton succLst)) in
   if eq std result then
     result
@@ -56,20 +71,15 @@ let doit n =
   (foldl1 (&&.) (List.map singleton idx)) <=> (path n (singleton (1,1))
   [(1,1)])
 
-let print =
-  let either_print f = function
-    True elt -> (print_string "True: "; f elt; print_newline ())
-    | False elt -> (print_string "False: "; f elt; print_newline ()) in
-  function
-    | Some lst when lst <> [] ->
-    begin
-      print_endline "Solution: ";
-      List.iter (either_print Tuple.print) lst
-    end
-  | _ -> print_endline "No solutions"
+let usage () =
+  print_string ("Usage:" ^ Sys.argv.(0) ^ " N")
 
 (** Main function *)
 let _ =
-  let bdd = doit 8 in
-  print_int (satCount bdd); print_newline ();
-  print (getSat bdd)
+  try
+    let bdd = doit (int_of_string (Sys.argv.(1))) in
+      match bdd with
+      One -> print_endline "All of the cells can be visited"
+      |_ -> print_endline "Some cells are unreachable"
+  with
+  _ -> usage ()

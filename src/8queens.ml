@@ -54,19 +54,32 @@ let doit n =
   let idx = make_indexes n in
   List.fold_left (&&.) queens (List.map (in_sight n) idx)
 
-let print =
-  let either_print f = function
-    True elt -> (print_string "True: "; f elt; print_newline ())
-    | False elt -> (print_string "False: "; f elt; print_newline ()) in
-  function
+let either_print f = function
+  True elt -> (print_string " True: "; f elt)
+  | False elt -> (print_string " False: "; f elt)
+
+let print = function
   None -> print_endline "No solutions"
-  | Some lst ->
-    begin
-      List.iter (either_print Tuple.print) lst
-    end
+  | Some lst -> List.iter (either_print Tuple.print) lst
+
+let print_lst =
+  List.iter (either_print Tuple.print)
+
+let usage () =
+  print_string ("Usage:" ^ Sys.argv.(0) ^ " N [-sat|-count|-list]")
+
+let parse () =
+  try
+    (int_of_string Sys.argv.(1),
+    match Sys.argv.(2) with
+    "-sat"     -> (fun bdd -> print (getSat bdd))
+    | "-count" -> (fun bdd -> print_int (satCount bdd))
+    | "-list"  -> (fun bdd -> List.iter (fun sol -> print_lst sol; print_newline ()) (getSatList bdd))
+    |_ -> raise (Invalid_argument "This should be catched"))
+  with _ -> (usage (); exit 1)
 
 (** Main function *)
 let _ =
-  let bdd = doit 11 in
-  print_int (satCount bdd); print_newline ();
-  print (getSat bdd)
+  let size,action = parse () in
+  let bdd = doit size in
+  action bdd
