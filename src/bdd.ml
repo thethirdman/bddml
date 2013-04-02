@@ -1,13 +1,18 @@
-module BDD = 
+(** The BDD module expects a functor that describes the Key representing
+ * the BDD (Int, String, Tuple, ...).
+ *)
+module BDD =
   functor (Type :
     sig
       type t
       val compare : t -> t -> int
     end) ->
 struct
+
 (** ID PART *)
 type uid = int
 
+(** Uid generator (lexical closure over a lambda function) *)
 let uidMake =
 let cur = ref 2 in
   (fun () -> (incr cur); !cur)
@@ -17,6 +22,7 @@ type 'a bdd = One | Zero
   | Robdd of ('a bdd) * 'a * ('a bdd) * uid
   | Robddref  of uid * 'a * uid * uid
 
+(* Takes a node an return its identifier *)
 let identifier = function
   | One -> 1
   | Zero -> 0
@@ -25,6 +31,7 @@ let identifier = function
 
 let eq a b = (identifier a) == (identifier b)
 
+(* Convert a leaf to Bool in order to apply the function to the ROBDD *)
 let leafToBool = function
   | One -> true
   | Zero -> false
@@ -38,10 +45,14 @@ let boolToLeaf = function
 type 'a robdd_id = uid * 'a * uid
 type op_id = uid * uid
 
+(* This is the hashtable that contains the various bdd nodes *)
 let context:((Type.t robdd_id,Type.t bdd) Hashtbl.t) = (Hashtbl.create 2047)
+
+(* This table contains the function cache *)
 let opContext:((op_id,Type.t bdd) Hashtbl.t) = (Hashtbl.create 2047)
 
 
+(** Safe implementation of Hashtbl.find. Ocaml does not provide such function *)
 let lookup elt ctx =
   if Hashtbl.mem ctx elt then
     Some (Hashtbl.find ctx elt)
@@ -50,12 +61,15 @@ let lookup elt ctx =
 
 let lookupUnsafe = Hashtbl.find context
 
+(* Predicate function that checks that a ROBDD is a singleton, i.e, a simple
+ * variable *)
 let rec isSingleton = function
   Robdd (l,_,r,_) when ((l == One) || (l == Zero)) &&
     ((r == One) || (r == Zero)) -> true
   | Robddref (left,v,right,_) -> isSingleton (lookupUnsafe (left,v,right))
   | _ -> false
 
+(* Generates a node only if necessary *)
 let mkNode l v r =
   let (lid,rid) = (identifier l,identifier r) in
   match lookup (lid,v,rid) context with
@@ -69,14 +83,16 @@ let mkNode l v r =
         res
       end
 
+(* Variable generation function *)
 let singleton v = mkNode Zero v One
 
+(* Generic function applying unary boolean operations. Returns the new ROBDD *)
 let rec unaryApply fn = function
   Robdd (l,v,r,_) -> mkNode (unaryApply fn l) v (unaryApply fn r)
   | Robddref (l,v,r,_) -> unaryApply fn (lookupUnsafe (l,v,r))
   | rest -> boolToLeaf (fn (leafToBool rest))
 
-
+(* Generic function for binary operations on ROBDD *)
 let rec apply fn left right =
 match lookup (identifier left, identifier right) opContext with
 | Some a -> a
@@ -101,31 +117,37 @@ match lookup (identifier left, identifier right) opContext with
   Hashtbl.add opContext (identifier left, identifier right) res;
   res
 
-let neg      = Hashtbl.clear opContext ; unaryApply not
-let (&&.)    = Hashtbl.clear opContext ; apply (&&)
-let (||.)    = Hashtbl.clear opContext ; apply (||)
-let (^.)     = Hashtbl.clear opContext ; apply (<>)
-let (=>) a b = Hashtbl.clear opContext ; apply (fun a b -> (not a) || b) a b
-let (<=>)    = Hashtbl.clear opContext ; apply (==)
+(* The implementations of ROBDD Primitives, the function cache is cleared
+ * between operations *)
+let neg     a = (Hashtbl.clear opContext ; unaryApply not a)
+let (&&.) a b = (Hashtbl.clear opContext ; apply (&&) a b)
+let (||.) a b = (Hashtbl.clear opContext ; apply (||) a b)
+let (^.)  a b = (Hashtbl.clear opContext ; apply (<>) a b)
+let (=>)  a b = (Hashtbl.clear opContext ; apply (fun a b -> (not a) || b) a b)
+let (<=>) a b = (Hashtbl.clear opContext ; apply (==) a b)
 
+(** Binary type, similar to Either in haskell. It describes the values taken
+ * by the variables in a satisfiable path *)
+type 'a value = True of 'a | False of 'a
+
+(** Returns a satisfied expression in BDD *)
 let rec getSat = function
-  Zero -> None
+  | Zero -> None
   | One -> Some []
   | Robdd (l,v,r,_) ->
       begin
         match getSat l with
-        Some c -> Some (v::c)
+        Some c -> Some (False v::c)
         | None ->
           begin
             match getSat r with
-            Some c -> Some (v::c)
+            Some c -> Some (True v::c)
             | None -> None
           end
       end
   | Robddref (l,v,r,_) -> getSat (lookupUnsafe (l,v,r))
 
-type 'a value = True of 'a | False of 'a
-
+(** Returns the list of satisfied expressions in a ROBDD *)
 let rec getSatList = function
   Zero -> []
   | One -> [[]]
@@ -134,6 +156,13 @@ let rec getSatList = function
     @(List.map (fun e -> (False v)::e) (getSatList r))
   | Robddref (l,v,r,_) -> getSatList (lookupUnsafe (l,v,r))
 
+let rec satCount = function
+  | Zero -> 0
+  | One -> 1
+  | Robdd (l,v,r,_) -> (satCount l) + (satCount r)
+  | Robddref (l,v,r,_) -> satCount (lookupUnsafe (l,v,r))
+
+(** Sets a variable to a given Boolean value *)
 let rec restrict var value = function
   | Robdd (l,v,r,_) ->
     if v == var then
@@ -147,6 +176,7 @@ let rec restrict var value = function
 let exists' var bdd =
   (restrict var false bdd) ||. (restrict var true bdd)
 
+(** Existential operation on a ROBDD *)
 let rec exists var bdd = match var with
   | Robdd (l,v,r,_) when isSingleton var -> exists' v bdd
   | Robddref (l,v,r,_) -> exists var (lookupUnsafe (l,v,r))
